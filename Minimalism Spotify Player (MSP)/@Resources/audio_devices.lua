@@ -1,10 +1,9 @@
--- audio_devices.lua
--- Enumerates audio output devices via PowerShell and populates device buttons
-
 DEVICES = {}
 MAX_DEVICES = 8
+SELECTED = ''
 
 function Initialize()
+    SELECTED = SKIN:GetVariable('AudioDevice') or ''
     RefreshDevices()
 end
 
@@ -13,16 +12,15 @@ end
 
 function RefreshDevices()
     local tmpFile = SKIN:GetVariable('CURRENTPATH') .. 'audio_devices.txt'
-    
-    -- Run PowerShell to get output devices
-    local cmd = 'powershell -NoProfile -Command "Get-WmiObject Win32_SoundDevice | Select-Object -ExpandProperty Name | Out-File -FilePath \'' .. tmpFile .. '\' -Encoding UTF8"'
+
+    local cmd = 'powershell -NoProfile -Command "' ..
+        '$devices = Get-WmiObject Win32_SoundDevice | Select-Object -ExpandProperty Name | Select-Object -Unique; ' ..
+        '$devices | Out-File -FilePath \'' .. tmpFile .. '\' -Encoding ASCII"'
     os.execute(cmd)
-    
-    -- Read the file
+
     DEVICES = {}
     local f = io.open(tmpFile, 'r')
     if f then
-        -- Skip BOM if present
         local content = f:read('*all')
         f:close()
         content = content:gsub('^\xEF\xBB\xBF', '')
@@ -33,27 +31,54 @@ function RefreshDevices()
             end
         end
     end
-    
-    -- Update all device buttons
+
+    UpdateButtons()
+end
+
+function UpdateButtons()
+    SELECTED = SKIN:GetVariable('AudioDevice') or ''
+
     for i = 1, MAX_DEVICES do
         local name = DEVICES[i] or ''
-        local hidden = (name == '') and '1' or '0'
-        SKIN:Bang('!SetOption DeviceBtn' .. i .. ' Text "' .. name .. '"')
-        SKIN:Bang('!SetOption DeviceBtn' .. i .. ' Hidden "' .. hidden .. '"')
-        if name ~= '' then
-            SKIN:Bang('!SetOption DeviceBtn' .. i .. ' LeftMouseUpAction "[!CommandMeasure MeasureDevices \'Select ' .. i .. '\']"')
+        if name == '' then
+            SKIN:Bang('!HideMeter DeviceBtn' .. i)
+        else
+            if name == SELECTED then
+                SKIN:Bang('!SetOption DeviceBtn' .. i .. ' SolidColor "80,180,80,220"')
+                SKIN:Bang('!SetOption DeviceBtn' .. i .. ' FontColor "255,255,255,255"')
+            else
+                SKIN:Bang('!SetOption DeviceBtn' .. i .. ' SolidColor "255,255,255,180"')
+                SKIN:Bang('!SetOption DeviceBtn' .. i .. ' FontColor "0,0,0,255"')
+            end
+            SKIN:Bang('!SetOption DeviceBtn' .. i .. ' Text "' .. name .. '"')
+            SKIN:Bang('!ShowMeter DeviceBtn' .. i)
         end
     end
+
+    if SELECTED == '' then
+        SKIN:Bang('!SetOption LabelAudioCurrent Text "Current: System default"')
+    else
+        SKIN:Bang('!SetOption LabelAudioCurrent Text "Current: ' .. SELECTED .. '"')
+    end
+
     SKIN:Bang('!UpdateMeter *')
     SKIN:Bang('!Redraw')
 end
 
 function Select(idx)
     idx = tonumber(idx)
-    if DEVICES[idx] then
-        local varFile = SKIN:GetVariable('ROOTCONFIGPATH') .. '@Resources\\variables.inc'
-        SKIN:Bang('!WriteKeyValue Variables AudioDevice "' .. DEVICES[idx] .. '" "' .. varFile .. '"')
-        SKIN:Bang('!Refresh "Minimalizm_Spotify_Visualizer" "MinimalSpotifyVisualizer.ini"')
-        SKIN:Bang('!Refresh')
-    end
+    if not idx or not DEVICES[idx] then return end
+    SELECTED = DEVICES[idx]
+    local varFile = SKIN:GetVariable('ROOTCONFIGPATH') .. '@Resources\\variables.inc'
+    SKIN:Bang('!WriteKeyValue Variables AudioDevice "' .. SELECTED .. '" "' .. varFile .. '"')
+    SKIN:Bang('!Refresh "Minimalizm_Spotify_Visualizer" "MinimalSpotifyVisualizer.ini"')
+    UpdateButtons()
+end
+
+function ResetDevice()
+    SELECTED = ''
+    local varFile = SKIN:GetVariable('ROOTCONFIGPATH') .. '@Resources\\variables.inc'
+    SKIN:Bang('!WriteKeyValue Variables AudioDevice "" "' .. varFile .. '"')
+    SKIN:Bang('!Refresh "Minimalizm_Spotify_Visualizer" "MinimalSpotifyVisualizer.ini"')
+    UpdateButtons()
 end
